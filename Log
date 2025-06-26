@@ -1,0 +1,6 @@
+resource.type="apigee.googleapis.com/Environment"
+protoPayload.methodName="google.cloud.apigee.v1.Environments.DeleteEnvironment"
+
+resource.type="audited_resource"
+protoPayload.serviceName="apigee.googleapis.com"
+protoPayload.methodName:"Delete"
