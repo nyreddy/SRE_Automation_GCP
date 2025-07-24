@@ -1,0 +1,47 @@
+# Get all GCP projects
+$projects = gcloud projects list --format="json(projectId)" 2>$null | ConvertFrom-Json
+
+# Build mapping of Project, ServiceAccount, KeyType
+$mapping = $projects | ForEach-Object {
+    $proj = $_.projectId
+
+    # Get service accounts in this project
+    $serviceAccounts = gcloud iam service-accounts list --project $proj --format="value(email)"
+
+    # For each service account, get its keys and classify
+    $serviceAccounts | ForEach-Object {
+        $sa = $_
+        $keysJson = gcloud iam service-accounts keys list --iam-account $sa --project $proj --format="json" 2>$null
+
+        if (-not [string]::IsNullOrEmpty($keysJson)) {
+            $keys = $keysJson | ConvertFrom-Json
+            $keys | ForEach-Object {
+                [PSCustomObject]@{
+                    Project        = $proj
+                    ServiceAccount = $sa
+                    KeyType        = if ($_.keyType -eq "USER_MANAGED") { "USER_MANAGED" } else { "SYSTEM_MANAGED" }
+                }
+            }
+        }
+        else {
+            # No keys case
+            [PSCustomObject]@{
+                Project        = $proj
+                ServiceAccount = $sa
+                KeyType        = "NO_KEYS"
+            }
+        }
+    }
+}
+
+# Export to Excel
+$Excel = $mapping | Export-Excel -Path "UNI-CNTL-4.xlsx" -WorksheetName "UNI-CNTL-4" -PassThru
+
+# Worksheet formatting
+$sheet1 = $Excel.Workbook.Worksheets["UNI-CNTL-4"]
+
+Set-ExcelRange -Worksheet $sheet1 -Range "A1:C1" -BackgroundColor Green -FontColor White -FontSize 12 -Width 20
+$sheet1.View.FreezePanes(2,1)
+Set-ExcelRange -Worksheet $sheet1 -Range "A1:C5000" -VerticalAlignment Center -AutoSize
+
+Close-ExcelPackage $Excel -Show
