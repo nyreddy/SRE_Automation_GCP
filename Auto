@@ -1,0 +1,50 @@
+# Import the ImportExcel module
+Import-Module -Name ImportExcel -Verbose
+
+# Authenticate with Google Cloud SDK before running
+gcloud auth login
+
+# Get all projects
+$projects = gcloud projects list --format="value(projectId)"
+
+# Initialize an array for mapping
+$mapping = @()
+
+foreach ($project in $projects) {
+    # Get all service accounts in the project
+    $serviceAccounts = gcloud iam service-accounts list --project $project --format="value(email)"
+
+    foreach ($serviceAccount in $serviceAccounts) {
+        # Get all keys for the service account
+        $keys = gcloud iam service-accounts keys list --iam-account $serviceAccount --project $project --format="json" | ConvertFrom-Json
+
+        foreach ($key in $keys) {
+            $keyType = if ($key.keyType -eq "USER_MANAGED") { "USER_MANAGED" } else { "SYSTEM_MANAGED" }
+
+            # Add record to mapping array
+            $mapping += [PSCustomObject]@{
+                Project       = $project
+                ServiceAccount = $serviceAccount
+                KeyType        = $keyType
+            }
+        }
+    }
+}
+
+# Export to Excel
+$Excel = $mapping | Export-Excel -Path "UNI-CNTL-4.xlsx" -WorksheetName "UNI-CNTL-4" -PassThru
+
+# Formatting
+$sheet1 = $Excel.Workbook.Worksheets["UNI-CNTL-4"]
+
+# Format title row
+Set-ExcelRange -Worksheet $sheet1 -Range "A1:C1" -BackgroundColor Green -FontColor White -FontSize 12 -Width 20
+
+# Freeze first row
+$sheet1.View.FreezePanes(2,1)
+
+# Auto-size and center align
+Set-ExcelRange -Worksheet $sheet1 -Range "A1:C5000" -VerticalAlignment Center -AutoSize
+
+# Save and close
+Close-ExcelPackage $Excel -Show
