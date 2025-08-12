@@ -1,0 +1,86 @@
+parameters:
+- name: env
+  displayName: Target environment
+  type: string
+  default: np
+  values: [np, pd]
+
+- name: teamsWebHookURL
+  type: string
+  default: 'https://huntingtoncloud.webhook.office.com/webhookb2/83d11c97-4137-41b9-b4ff-40d6225fa8d5@157a26ef-912f-42a4-abef-...'
+
+trigger: none
+schedules:
+- cron: "0 4 * * *"
+  displayName: Trigger every day at midnight
+  branches:
+    include: [ main ]
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+# Keep your variable group
+variables:
+- group: CDO-Pipeline
+
+# ---------- Environment-specific values ----------
+${{ if eq(parameters.env, 'np') }}:
+  variables:
+  - name: Nuid
+    value: srvgcpsnowdp
+  - name: SecretName
+    value: servicenow-dv-pass
+  - name: SecretProject
+    value: prj-dv-secrets-f62f
+  - name: SnowBaseUrl
+    value: https://huntingtontest.service-now.com
+
+${{ if eq(parameters.env, 'pd') }}:
+  variables:
+  - name: Nuid
+    value: srvgcpsnowpd
+  - name: SecretName
+    value: servicenow-pd-pass
+  - name: SecretProject
+    value: prj-pd-secrets-19df
+  - name: SnowBaseUrl
+    value: https://huntingtonprod.service-now.com
+
+name: Generate-CMDB-Report-$(Date:yyyyMMdd)
+
+steps:
+- task: DownloadSecureFile@1
+  displayName: Get Control Account Credentials
+  name: creds
+  inputs:
+    secureFile: $(gcp_secured_audit_token)
+
+- script: |
+    gcloud auth activate-service-account --key-file=$(creds.secureFilePath)
+  displayName: Authenticate Control Account
+
+- task: PowerShell@2
+  displayName: Generate list of app team correlation ids and services
+  inputs:
+    targetType: filePath
+    filePath: .\Generate-CmdbReport.ps1
+    arguments: >
+      -Env '${{ parameters.env }}'
+      -Nuid '$(Nuid)'
+      -SecretName '$(SecretName)'
+      -SecretProject '$(SecretProject)'
+      -SnowBaseUrl '$(SnowBaseUrl)'
+      -BatchSize 50
+
+- task: PowerShell@2
+  displayName: Notify Teams - Failure
+  condition: failed()
+  inputs:
+    targetType: inline
+    script: |
+      $payload = @{
+        title = "❌ CMDB Report Pipeline Failed ($(Build.BuildNumber))"
+        text  = "Environment: ${{ parameters.env }}"
+      } | ConvertTo-Json -Depth 3
+      Invoke-RestMethod -Uri '${{ parameters.teamsWebHookURL }}' -Method Post -ContentType 'application/json' -Body $payload
